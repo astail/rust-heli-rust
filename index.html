@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rust Heli Trainer (Rust 版)</title>
+<meta name="description" content="RustのMinicopter操作をブラウザで練習できる非公式フライトトレーナー (Rust + WebAssembly 版)">
+<style>
+  :root {
+    --bg: #0e1116; --panel: rgba(14,17,22,.78); --fg: #e8e6e1; --muted: #9aa3ad;
+    --accent: #e0662c; --good: #5fbf6a; --bad: #e05050; --line: rgba(255,255,255,.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  canvas#gl { display: block; width: 100vw; height: 100vh; }
+  .hud { position: fixed; pointer-events: none; font-variant-numeric: tabular-nums; }
+  #stats { left: 16px; bottom: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 210px; }
+  #stats .row { display: flex; justify-content: space-between; gap: 18px; font-size: 14px; line-height: 1.7; }
+  #stats .row span:first-child { color: var(--muted); }
+  #thrbar { height: 8px; background: rgba(255,255,255,.1); border-radius: 4px; margin-top: 6px; overflow: hidden; }
+  #thrfill { height: 100%; width: 50%; background: var(--accent); }
+  #attWrap { right: 16px; bottom: 16px; }
+  #att { display: block; width: 170px; height: 170px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); }
+  .hudoff { display: none !important; }
+  .hvrow { display: flex; flex-wrap: wrap; gap: 6px 16px; padding-left: 26px; }
+  .hvrow.dim { opacity: .45; }
+  /* HUD layout editing */
+  .rh { display: none; position: absolute; right: -8px; bottom: -8px; width: 16px; height: 16px; background: var(--accent); border: 2px solid #fff; border-radius: 4px; cursor: nwse-resize; }
+  body.hudedit .hud.movable { pointer-events: auto; outline: 2px dashed var(--accent); outline-offset: 3px; cursor: move; user-select: none; touch-action: none; }
+  body.hudedit .hud.movable .rh { display: block; }
+  body.hudedit #missionText:empty::before { content: 'ミッション表示'; color: var(--muted); }
+  #hudbar { position: fixed; left: 50%; bottom: 50%; transform: translate(-50%, 50%); z-index: 20; display: none; background: rgba(22,26,33,.95); border: 1px solid var(--accent); border-radius: 12px; padding: 14px 18px; text-align: center; font-size: 14px; }
+  body.hudedit #hudbar { display: block; }
+  #hudbar p { cursor: move; user-select: none; touch-action: none; margin: 0 0 10px; color: var(--muted); line-height: 1.6; }
+  #hudbar button, .hudbtn { background: #2a303a; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 16px; font: inherit; cursor: pointer; margin: 0 4px; }
+  #hudbar button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  #mission { left: 50%; top: 14px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 16px; font-size: 15px; text-align: center; max-width: calc(100vw - 32px); }
+  #mission b { color: var(--accent); }
+  #toast { left: 50%; top: 40%; transform: translate(-50%,-50%); font-size: 34px; font-weight: 700; text-shadow: 0 2px 10px #000; opacity: 0; transition: opacity .3s; text-align: center; }
+  #ceilWarn { left: 50%; top: 62px; transform: translateX(-50%); background: rgba(224,80,80,.85); color: #fff; font-weight: 700; padding: 4px 14px; border-radius: 6px; display: none; }
+  #keys { right: 16px; top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; display: flex; gap: 12px; align-items: center; }
+  .kgrid { display: grid; grid-template-columns: repeat(3, 34px); gap: 4px; }
+  .mwrap { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; color: var(--muted); letter-spacing: .08em; }
+  #mpad { width: 70px; height: 70px; }
+  .k { border: 1px solid var(--line); border-radius: 5px; text-align: center; padding: 4px 0; color: var(--muted); }
+  .k.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  /* settings live in a left side panel so the view stays visible while adjusting the camera */
+  #menu { position: fixed; top: 0; bottom: 0; left: 0; width: min(430px, 100vw); display: flex; z-index: 10; }
+  #menu .card { background: rgba(22,26,33,.94); border-right: 1px solid var(--line); padding: 20px; width: 100%; height: 100%; overflow-y: auto; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: 14px; }
+  h2 { font-size: 15px; margin: 18px 0 8px; color: var(--muted); font-weight: 600; }
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .mode { background: #1e232c; border: 1px solid var(--line); color: var(--fg); border-radius: 10px; padding: 12px; text-align: left; cursor: pointer; font: inherit; }
+  .mode:hover, .mode.sel { border-color: var(--accent); }
+  .mode b { display: block; margin-bottom: 4px; }
+  .mode small { color: var(--muted); line-height: 1.4; display: block; }
+  table.ctl { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.ctl td { padding: 5px 4px; border-bottom: 1px solid var(--line); }
+  table.ctl td:first-child { width: 42%; }
+  kbd { background: #2a303a; border: 1px solid #3a414d; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: inherit; }
+  .opts { display: grid; gap: 10px; font-size: 14px; }
+  .opts label { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .opts input[type=range] { flex: 1; min-width: 140px; accent-color: var(--accent); }
+  .opts select { background: #1e232c; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit; }
+  .camfs { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px 10px; display: grid; gap: 6px; margin: 0; }
+  .camfs legend { color: var(--muted); padding: 0 6px; font-size: 13px; }
+  .camfs legend button { margin-left: 8px; background: #2a303a; color: var(--fg); border: 1px solid var(--line); border-radius: 5px; font: inherit; font-size: 12px; padding: 1px 8px; cursor: pointer; }
+  .camfs select { font-size: 12px; padding: 1px 4px; margin-left: 6px; }
+  .cl { width: 92px; color: var(--muted); }
+  .cv { width: 64px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  .opts label.chk { flex-wrap: nowrap; align-items: flex-start; }
+  .opts label.chk input { margin-top: 2px; flex: none; }
+  .opts label.chk small { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
+  .opts input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+  /* on wide screens the controls list floats on the right so settings fit in the left panel at a glance */
+  @media (min-width: 900px) {
+    #ctlPanel { position: fixed; right: 16px; top: 50%; transform: translateY(-50%); width: 360px; max-height: calc(100vh - 32px); overflow-y: auto; font-size: 13px;
+      background: rgba(22,26,33,.94); border: 1px solid var(--line); border-radius: 12px; padding: 4px 16px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+    #ctlPanel table.ctl td:first-child { width: 32%; }
+  }
+  /* start button stays pinned to the bottom of the menu so it is visible without scrolling */
+  .startbar { position: sticky; bottom: -20px; margin: 16px -20px -20px; padding: 12px 20px 16px; background: rgba(22,26,33,.98); border-top: 1px solid var(--line); box-shadow: 0 -8px 16px rgba(0,0,0,.35); }
+  .startbar small { display: block; color: var(--muted); font-size: 12px; margin-top: 6px; text-align: center; }
+  #start:disabled { opacity: .6; cursor: wait; }
+  #start { width: 100%; padding: 14px; font-size: 17px; font-weight: 700; background: var(--accent); color: #fff; border: 0; border-radius: 10px; cursor: pointer; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 12px; line-height: 1.5; }
+  .best { color: var(--good); font-size: 12px; }
+  @media (max-width: 640px) { #att { width: 110px; height: 110px; } #keys { display: none; } #stats { min-width: 170px; } }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div class="hud movable" id="mission"><span id="missionText"></span></div>
+<div class="hud" id="toast"></div>
+<div class="hud" id="ceilWarn">高度制限</div>
+<div class="hud movable" id="keys">
+  <div class="kgrid">
+    <div></div><div class="k" id="kW">W</div><div></div>
+    <div class="k" id="kA">A</div><div class="k" id="kS">S</div><div class="k" id="kD">D</div>
+    <div class="k" id="kCtrl" style="grid-column: 1 / 4">Ctrl</div>
+  </div>
+  <div class="mwrap"><canvas id="mpad" width="140" height="140"></canvas><span>MOUSE</span></div>
+</div>
+<div class="hud movable" id="stats">
+  <div class="row"><span>高度 (AGL)</span><span id="sAlt">0 m</span></div>
+  <div class="row"><span>海抜 / 制限</span><span id="sCeil">0 m</span></div>
+  <div class="row"><span>視点</span><span id="sCam">TPS</span></div>
+  <div class="row"><span>速度</span><span id="sSpd">0 km/h</span></div>
+  <div class="row"><span>昇降率</span><span id="sVs">0.0 m/s</span></div>
+  <div class="row"><span>ピッチ / ロール</span><span id="sAtt">0° / 0°</span></div>
+  <div class="row"><span>スロットル</span><span id="sThr">0%</span></div>
+  <div id="thrbar"><div id="thrfill"></div></div>
+</div>
+<div class="hud movable" id="attWrap"><canvas id="att" width="340" height="340"></canvas></div>
+<div id="hudbar">
+  <p><b style="color:var(--fg)">HUD 配置モード</b><br>枠をドラッグで移動 / 右下の角をドラッグ or ホイールでサイズ変更<br><small>(このパネルもここを掴んで動かせます)</small></p>
+  <button id="hudReset">初期配置に戻す</button><button id="hudDone" class="primary">完了</button>
+</div>
+
+<div id="menu">
+  <div class="card">
+    <h1>Rust <span>Heli</span> Trainer</h1>
+    <p class="sub">Rust の Minicopter 風の操縦をブラウザで練習するための非公式シミュレーター</p>
+    <p class="sub" style="margin-top:-12px">Rust 言語 + WebAssembly 版 (<a href="https://astail.github.io/rust-heli/" style="color:var(--accent)">元の JavaScript 版</a>)</p>
+
+    <h2>モード</h2>
+    <div class="modes">
+      <button class="mode sel" data-mode="free"><b>フリーフライト</b><small>自由に飛んで操作に慣れる</small></button>
+      <button class="mode" data-mode="rings"><b>リングコース</b><small>10個のリングをくぐってタイムアタック</small><span class="best" id="bestRings"></span></button>
+      <button class="mode" data-mode="landing"><b>着陸チャレンジ</b><small>ヘリパッドや屋上に5回着陸</small><span class="best" id="bestLanding"></span></button>
+      <button class="mode" data-mode="hover"><b>ホバリング</b><small>エリア内で高度を保って20秒静止</small><span class="best" id="bestHover"></span></button>
+    </div>
+
+    <section id="ctlPanel">
+    <h2>操作 (Rust のデフォルト準拠)</h2>
+    <table class="ctl">
+      <tr><td><kbd>W</kbd></td><td>スロットル上昇 (上昇)</td></tr>
+      <tr><td><kbd>S</kbd></td><td>スロットル下降 (降下)</td></tr>
+      <tr><td><kbd>Ctrl</kbd></td><td>押している間は揚力が抜ける (空中なら落ちる)。地上では Ctrl+W で前進 / Ctrl+S で後退 / A・D で向きを変える</td></tr>
+      <tr><td><kbd>A</kbd> / <kbd>D</kbd></td><td>ヨー (その場で機首を左右に回す + 旋回方向へ傾く。傾きは自動で戻らないのでマウスで直す)</td></tr>
+      <tr><td>マウス 前後</td><td>ピッチ (前傾で前進 / 後傾で減速・後退)</td></tr>
+      <tr><td>マウス 左右</td><td>ロール (横に傾けて旋回・横移動)</td></tr>
+      <tr><td><kbd>C</kbd> / <kbd>V</kbd></td><td>視点切替 (パイロット / 機内 / コックピット / 近接 / TPS / チェイス / 俯瞰)</td></tr>
+      <tr><td><kbd>R</kbd></td><td>リスポーン</td></tr>
+      <tr><td><kbd>H</kbd></td><td>HUD 表示 ON/OFF</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>一時停止 / メニュー</td></tr>
+    </table>
+    </section>
+
+    <h2>設定</h2>
+    <div class="opts">
+      <label>マウス感度 <input type="range" id="optSens" min="0.01" max="3" step="0.01" value="0.5"><span id="optSensV">0.50</span></label>
+      <label>高度制限
+        <select id="optCeil">
+          <option value="0">なし</option><option value="50">50 m</option><option value="100">100 m</option>
+          <option value="150">150 m</option><option value="250">250 m</option>
+        </select>
+      </label>
+      <label>回転軸の位置 <input type="range" id="optPivot" min="-0.4" max="2.5" step="0.1"><span id="optPivotV"></span></label>
+      <small style="color:var(--muted);margin-top:-6px">パイロットから何 m 後ろを中心に機体が回るか。大きいほど A/D で前の席が大きく振られる (-0.4 m が以前の挙動)</small>
+      <fieldset class="camfs">
+        <legend>デフォルト視点とカメラ位置
+          <select id="optCam">
+            <option value="6">パイロット</option><option value="5">機内 (パイロット後方)</option><option value="4">近接</option>
+            <option value="0">TPS (近め)</option><option value="1">チェイス (遠め)</option><option value="3">俯瞰</option>
+          </select>
+          <button type="button" id="camReset">この視点をリセット</button></legend>
+        <label><span class="cl">距離 (後方+)</span><input type="range" id="cDist"><span class="cv" id="cDistV"></span></label>
+        <label><span class="cl">高さ</span><input type="range" id="cHeight"><span class="cv" id="cHeightV"></span></label>
+        <label><span class="cl">左右</span><input type="range" id="cSide"><span class="cv" id="cSideV"></span></label>
+        <label><span class="cl">下向き角度</span><input type="range" id="cTilt" min="-45" max="60" step="1"><span class="cv" id="cTiltV"></span></label>
+        <label><span class="cl">計器盤の箱</span><input type="range" id="optDash" min="0" max="1" step="0.05"><span class="cv" id="optDashV"></span></label>
+        <small style="color:var(--muted)">計器盤の箱: 0% で透明 (メーターだけ残る)。距離・高さはマイナスも可 (前方 / 機体の下)。飛行中はマウスホイールで今の視点の距離を調整できます</small>
+      </fieldset>
+      <label class="chk"><input type="checkbox" id="optInvert"><span>マウス上下反転<small>Rust の input.vehicle_flipy 相当</small></span></label>
+      <label class="chk"><input type="checkbox" id="optFs"><span>スタート時に全画面<small>Chrome / Edge では Ctrl+W でタブが閉じなくなる</small></span></label>
+      <label><input type="checkbox" id="optSound"> ローター音を出す
+        <span style="display:flex;align-items:center;gap:8px;flex:1;min-width:160px">音量 <input type="range" id="optVol" min="0" max="1" step="0.05" value="0.25"></span></label>
+    </div>
+
+    <h2>HUD 表示 (<kbd>H</kbd> で全体を ON/OFF)</h2>
+    <div class="opts hudvis">
+      <label><input type="checkbox" id="hvAll"> HUD を表示</label>
+      <div class="hvrow">
+        <label><input type="checkbox" data-hud="stats"> 数値</label>
+        <label><input type="checkbox" data-hud="attWrap"> 姿勢計</label>
+        <label><input type="checkbox" data-hud="keys"> キー/マウス</label>
+        <label><input type="checkbox" data-hud="mission"> ミッション</label>
+      </div>
+    </div>
+    <div style="margin-top:10px"><button type="button" class="hudbtn" id="hudEdit">HUD の位置・サイズを変更</button>
+      <button type="button" class="hudbtn" id="resetAll">すべての設定を初期化</button></div>
+    <p class="note">Facepunch Studios とは無関係のファンメイド練習ツールです。挙動は本家を近似したもので完全一致ではありません。</p>
+    <div class="startbar">
+      <button id="start" disabled>読み込み中…</button>
+      <small>PC + マウス推奨。開始するとマウスがロックされます (Esc でこのメニューに戻る)</small>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+// 中身はすべて Rust (pkg/rust_heli_rust_bg.wasm)。ここでは読み込むだけ
+import init from './pkg/rust_heli_rust.js';
+init().catch(e => {
+  console.error(e);
+  const b = document.getElementById('start');
+  if (b.disabled) b.textContent = '読み込みに失敗しました: ' + e;
+});
+</script>
+</body>
+</html>

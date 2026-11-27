@@ -1,0 +1,78 @@
+[package]
+name = "rust-heli-rust"
+version = "0.1.0"
+edition = "2024"
+description = "Rust Minicopter flight trainer, rewritten in Rust (WebAssembly)"
+repository = "https://github.com/astail/rust-heli-rust"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+glam = "0.34"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "=0.2.130"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "AddEventListenerOptions",
+  "AudioBuffer",
+  "AudioBufferSourceNode",
+  "AudioContext",
+  "AudioDestinationNode",
+  "AudioNode",
+  "AudioParam",
+  "AudioScheduledSourceNode",
+  "BaseAudioContext",
+  "BeforeUnloadEvent",
+  "BiquadFilterNode",
+  "BiquadFilterType",
+  "CanvasRenderingContext2d",
+  "CssStyleDeclaration",
+  "Document",
+  "DomRect",
+  "DomTokenList",
+  "Element",
+  "Event",
+  "EventTarget",
+  "GainNode",
+  "HtmlCanvasElement",
+  "HtmlElement",
+  "HtmlInputElement",
+  "HtmlSelectElement",
+  "HtmlButtonElement",
+  "KeyboardEvent",
+  "Location",
+  "MouseEvent",
+  "Navigator",
+  "Node",
+  "NodeList",
+  "OscillatorNode",
+  "OscillatorType",
+  "Performance",
+  "PeriodicWave",
+  "PointerEvent",
+  "Storage",
+  "WebGl2RenderingContext",
+  "WebGlBuffer",
+  "WebGlContextAttributes",
+  "WebGlFramebuffer",
+  "WebGlProgram",
+  "WebGlShader",
+  "WebGlTexture",
+  "WebGlUniformLocation",
+  "WebGlVertexArrayObject",
+  "WheelEvent",
+  "Window",
+  "console",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
