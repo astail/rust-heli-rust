@@ -31,6 +31,7 @@ fn request_frame(f: &Closure<dyn FnMut(f64)>) {
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
+    store::move_old_prefix();
     let app = match app::App::new() {
         Ok(a) => Rc::new(RefCell::new(a)),
         Err(e) => {
