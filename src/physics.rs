@@ -169,7 +169,7 @@ impl Heli {
         }
         self.lift_cut += ((if cut { 0.15 } else { 1.0 }) - self.lift_cut)
             * (dt * if cut { 3.0 } else { 1.5 }).min(1.0);
-        self.throttle += (target - self.throttle) * (dt * 0.7).min(1.0); // 重いローターのように遅れて効く
+        self.throttle += (target - self.throttle) * (dt * 0.47).min(1.0); // 重いローターのように遅れて効く
         let spin_target = if self.grounded && self.throttle < 0.05 && !cut {
             0.25
         } else {
@@ -187,31 +187,32 @@ impl Heli {
         let yaw_in = (inp.a as i32 - inp.d as i32) as f32;
 
         // マウスは回転の目標値を動かし、機体の慣性がそれに遅れてついてくる
+        // (効き ÷ 戻り を 2.4 のまま保つので、マウスを 1 回動かして回る量は変わらず、ゆっくりになる)
         if !self.grounded {
-            self.ctrl.x += pitch_in * 3.0;
-            self.ctrl.z += roll_in * 3.0;
+            self.ctrl.x += pitch_in * 2.0;
+            self.ctrl.z += roll_in * 2.0;
         }
-        self.ctrl.x = self.ctrl.x.clamp(-0.6, 0.6);
-        self.ctrl.z = self.ctrl.z.clamp(-0.6, 0.6);
-        let cd = (-dt * 1.25).exp();
+        self.ctrl.x = self.ctrl.x.clamp(-0.4, 0.4);
+        self.ctrl.z = self.ctrl.z.clamp(-0.4, 0.4);
+        let cd = (-dt * 0.83).exp();
         self.ctrl.x *= cd;
         self.ctrl.z *= cd;
-        let inertia = (dt * 0.75).min(1.0); // 重い機体: 回り始めも止まるのも遅い
+        let inertia = (dt * 0.5).min(1.0); // 重い機体: 回り始めも止まるのも遅い
         self.ang_vel.x += (self.ctrl.x - self.ang_vel.x) * inertia;
         self.ang_vel.z += (self.ctrl.z - self.ang_vel.z) * inertia;
         // 地上では Ctrl を押しているときだけ向きを変えられる (地上走行)
         let yaw_target = yaw_in * 0.6 * if self.grounded && !cut { 0.0 } else { 1.0 };
-        self.ang_vel.y += (yaw_target - self.ang_vel.y) * (dt * 0.45).min(1.0);
+        self.ang_vel.y += (yaw_target - self.ang_vel.y) * (dt * 0.3).min(1.0);
         // A/D で旋回方向へ傾く (最大 20° ほど)。自動では戻らない
         if !self.grounded && yaw_in != 0.0 {
             self.bank = (self.bank + yaw_in * 0.2 * dt).clamp(-0.35, 0.35);
         }
-        // 軽い乱気流
+        // 軽い乱気流 (戻りを遅くした分だけ弱め、機体の揺れは前と同じに保つ)
         if !self.grounded {
             self.turb_t += dt;
             let tt = self.turb_t;
-            self.ctrl.x += (tt * 1.7).sin() * (tt * 0.63).sin() * dt * 0.05;
-            self.ctrl.z += (tt * 1.3 + 2.0).sin() * (tt * 0.41).sin() * dt * 0.05;
+            self.ctrl.x += (tt * 1.7).sin() * (tt * 0.63).sin() * dt * 0.033;
+            self.ctrl.z += (tt * 1.3 + 2.0).sin() * (tt * 0.41).sin() * dt * 0.033;
         }
 
         // ピッチは機体の x 軸、ロールは z 軸、ヨーは世界の上向き軸で回す。
